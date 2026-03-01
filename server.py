@@ -7,7 +7,7 @@ import json
 
 app = Flask(__name__)
 
-BASE_DIR = Path("scenes").resolve()
+BASE_DIR = Path("scene_1").resolve()
 BASE_DIR.mkdir(exist_ok=True)
 try:
     repo = Repo(BASE_DIR)
@@ -20,7 +20,6 @@ def safe_path(relative_path: str) -> Path:
     if not str(path).startswith(str(BASE_DIR)):
         abort(403, "Invalid path")
     return path
-
 
 def git_commit(file_path: Path, message: str):
     rel_path = file_path.relative_to(BASE_DIR)
@@ -42,7 +41,8 @@ def get_json(path):
         return jsonify(json.load(f))
 
 # PUT json
-# /json/SC_012/test1.json   Optional Header: Commit-Message
+# /json/SC_012/test1.json?commit_message=<value>
+#    Optional Parameter: commit_message
 @app.route("/json/<path:path>", methods=["PUT"])
 def put_json(path):
     if not request.is_json:
@@ -51,7 +51,7 @@ def put_json(path):
     file_path = safe_path(path)
     incoming = request.get_json()
 
-    commit_message = request.headers.get("Commit-Message")
+    commit_message = request.args.get("commit_message")
 
     if file_path.exists():
         with file_path.open("r", encoding="utf-8") as f:
@@ -99,6 +99,67 @@ def history(path):
         }
         for c in commits
     ])
+
+# GET all branches
+@app.route("/branches", methods=["GET"])
+def list_branches():
+    branches = [b.name for b in repo.branches]
+
+    return jsonify({
+        "current":  repo.active_branch.name, 
+        "branches": branches
+    })
+
+# POST /branches/<branch_name>?from_commit=<value>
+@app.route("/branches/<branch_name>", methods=["POST"])
+def create_branches(branch_name):
+    
+    if (branch_name in [b.name for b in repo.branches]):
+        abort(404, "Branch name already exist")
+
+    from_commit = request.args.get("from_commit")
+    print(from_commit)
+    if from_commit:
+        sel_commit = repo.commit(from_commit)
+        repo.create_head(branch_name, sel_commit)
+    else:
+        repo.create_head(branch_name)
+
+    
+
+    return jsonify({
+        "status": "Created new branch"
+    })
+
+# PUT Change Branch
+@app.route("/branches/<branch_name>", methods=["PUT"])
+def switch_branch(branch_name):
+    if branch_name not in [b.name for b in repo.branches]:
+        abort(404, "Branch not found")
+
+    repo.git.checkout(branch_name)
+
+    # Maybe stash idk
+
+    return jsonify({
+        "status": f"Changed Branches to {branch_name}"
+    })
+
+# DELETE 
+@app.route("/branches/<branch_name>", methods=["DELETE"])
+def delete_branch(branch_name):
+    if branch_name == repo.active_branch.name:
+        abort(404, "Cannot delete active branch")
+    
+    if branch_name not in [b.name for b in repo.branches]:
+        abort(404, "Branch doesn't exist")
+
+    repo.delete_head(branch_name, force=True)
+
+    return jsonify({
+        "status": f"deleted {branch_name}"
+    })
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
