@@ -2,15 +2,19 @@ from flask import Flask, request, jsonify, abort
 from pathlib import Path
 from git import Repo, InvalidGitRepositoryError
 from datetime import datetime, timezone
+from openai import OpenAI
 import json
 import shutil 
+import base64
+import io
+
 
 # pip install flask GitPython
 
 app = Flask(__name__)
+# client = 
 BASE_DIR = Path("projects").resolve()
 BASE_DIR.mkdir(exist_ok=True)
-
 
 def get_project_repo(project_name: str):
     project_path = BASE_DIR / project_name
@@ -222,6 +226,72 @@ def history(project, scene, shot, role):
 #     return jsonify({
 #         "status": f"deleted {branch_name}"
 #     })
+
+# STT S --------------------------------------------------
+@app.route("/stt", methods=["POST"])
+def stt():
+    # VaRest-friendly: JSON body with base64 audio
+    if not request.is_json:
+        abort(400, "Request body must be JSON")
+
+    body = request.get_json()
+    audio_b64 = body.get("audio_b64")
+    filename = body.get("filename", "audio.wav")
+
+    if not audio_b64:
+        abort(400, "Missing audio_b64")
+
+    audio_bytes = base64.b64decode(audio_b64)
+
+    f = io.BytesIO(audio_bytes)
+    f.name = filename  # helps model infer format
+
+    result = client.audio.transcriptions.create(
+        model="gpt-4o-mini-transcribe",
+        file=f
+    )
+
+    return jsonify({"text": result.text})
+# STT E --------------------------------------------------
+
+# OLD S --------------------------------------------------
+# Get json function
+# @app.route("/json/<path:path>", methods=["GET"])
+# def get_json(path):
+#     path = Path(path)
+#     if not path.exists():
+#         abort(404, "File not found")
+#     with path.open("r", encoding='utf-8') as f:
+#         return jsonify(json.load(f))
+
+
+# @app.route("/json/<path:path>", methods=["PUT"])
+# def put_json(path):
+#     path = Path(path)
+#     if not request.is_json:
+#         abort(400, "Request body must be JSON")
+
+#     incoming = request.get_json()                 #  changed
+
+#     if path.exists():                             #  added
+#         with path.open("r", encoding="utf-8") as f:
+#             data = json.load(f)
+#     else:
+#         data = {}
+
+#     data.update(incoming)                         #  added
+
+#     path.parent.mkdir(parents=True, exist_ok=True)
+#     with path.open("w", encoding="utf-8") as f:
+#         json.dump(data, f, indent=2)
+
+#     return jsonify({
+#         "status": "ok",
+#         "written": str(path),
+#         "data": data
+#     })
+# OLD E --------------------------------------------------
+
 
 
 if __name__ == "__main__":
