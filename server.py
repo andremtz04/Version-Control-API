@@ -70,14 +70,17 @@ def update_role_file(project, scene, shot, file):
     rotate_versions(shot_path, role)
     data = request.get_json()
 
-    wrapped = {
-        "metadata": {
-            "pipline_State": data.get("Stage"),
-            "role": role,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        },
-        "data": data
-    }
+    if "metadata" in data and "data" in data:
+        wrapped = data
+    else:
+        wrapped = {
+            "metadata": {
+                "pipline_State": data.get("Stage"),
+                "role": role,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            },
+            "data": data
+        }
 
     # Converts to json file
     with role_path.open("w") as f:
