@@ -1,18 +1,21 @@
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, jsonify, abort, send_file
 from pathlib import Path
 from git import Repo, InvalidGitRepositoryError
 from datetime import datetime, timezone
 from openai import OpenAI
+from dotenv import load_dotenv
 import json
 import shutil 
 import base64
 import io
+import os
 
 
-# pip install flask GitPython
+# pip install flask GitPython OpenAI python-dotenv
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
-# client = 
 BASE_DIR = Path("projects").resolve()
 BASE_DIR.mkdir(exist_ok=True)
 
@@ -166,6 +169,142 @@ def history(project, scene, shot, role):
         }
         for c in commits
     ])
+
+
+# GET Diff
+@app.route("/projects/<project>/<scene>/<shot>/diff", methods=["GET"])
+def diff_files(project, scene, shot):
+
+    file1 = request.args.get("file1")
+    file2 = request.args.get("file2")
+
+    if not file1 or not file2:
+        abort(400, "file1 and file2 required")
+
+    shot_path = BASE_DIR / project / scene / shot
+
+    path1 = shot_path / file1
+    path2 = shot_path / file2
+
+    if not path1.exists() or not path2.exists():
+        abort(404, "One of the files does not exist")
+
+    with path1.open() as f:
+        data1 = json.load(f)
+
+    with path2.open() as f:
+        data2 = json.load(f)
+
+    diff = compute_diff(data1, data2)
+
+    return jsonify({
+        "file1": file1,
+        "file2": file2,
+        "diff": diff
+    })
+
+
+
+def compute_diff(prev_data, cur_data):
+
+    old_actors = {}
+    new_actors = {}
+
+    old_list = prev_data.get("data", {}).get("Actors", {})
+    new_list = cur_data.get("data", {}).get("Actors", {})
+    
+    for actor in old_list:
+        actor_type = actor["ActorType"] + "_" + actor["Instance"]
+        old_actors[actor_type] = actor
+
+    for actor in new_list:
+        actor_type = actor["ActorType"] + "_" + actor["Instance"]
+        new_actors[actor_type] = actor
+
+    added = []
+    removed = []
+    modified = []
+
+    # Added or modified
+    for actor_type, new_actor in new_actors.items():
+
+        # They were added
+        if actor_type not in old_actors:
+            added.append(new_actor)
+
+        else:
+            old_actor = old_actors[actor_type]
+
+            # Modified
+            changes = {}
+
+            for field in new_actor:
+                if field not in old_actor:
+                    changes[field] = {
+                        "previous": None,
+                        "current": new_actor[field]
+                    }
+                elif old_actor[field] != new_actor[field]:
+                    changes[field] = {
+                        "previous": old_actor[field],
+                        "current": new_actor[field]
+                    }
+            if changes:
+                modified.append({
+                    "actor": actor_type,
+                    "changes": changes
+                })
+
+    # Removed
+    for actor_type, old_actor in old_actors.items():
+        if actor_type not in new_actors:
+            removed.append(old_actor)
+
+    return {
+        "added": added,
+        "removed": removed,
+        "modified": modified
+    }
+
+
+# File viewer (AI GEN)
+@app.route("/", defaults={"req_path": ""})
+@app.route("/browse/<path:req_path>")
+def browse(req_path):
+
+    abs_path = BASE_DIR / req_path
+
+    if not abs_path.exists():
+        abort(404)
+
+    # If file → return file
+    if abs_path.is_file():
+        return send_file(abs_path)
+
+    # If directory → list contents
+    files = []
+    for item in abs_path.iterdir():
+        files.append({
+            "name": item.name,
+            "path": f"{req_path}/{item.name}",
+            "type": "dir" if item.is_dir() else "file"
+        })
+
+    html = f"<h2>Project Directory</h2><ul>"
+
+    if req_path != "":
+        parent = "/".join(req_path.split("/")[:-1])
+        html += f'<li><a href="/browse/{parent}">⬅ Back</a></li>'
+
+    for f in files:
+        if f["type"] == "dir":
+            html += f'<li>📁 <a href="/browse/{f["path"]}">{f["name"]}</a></li>'
+        else:
+            html += f'<li>📄 <a href="/browse/{f["path"]}">{f["name"]}</a></li>'
+
+    html += "</ul>"
+
+    return html
 
 # # GET all branches
 # @app.route("/branches", methods=["GET"])
