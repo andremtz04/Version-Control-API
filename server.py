@@ -124,6 +124,7 @@ def rollback_role(project, scene, shot, role):
     return jsonify({"status": f"rolled back to {role}_{version}"})
 
 
+# POST merge files
 @app.route("/projects/<project>/<scene>/<shot>/<role>/merge", methods=["POST"])
 def merge_role(project, scene, shot, file):
 
@@ -132,7 +133,7 @@ def merge_role(project, scene, shot, file):
     role_path = shot_path / file
     master_path = shot_path / "Shot.json"
 
-    if not master_path.exist():
+    if not master_path.exists():
         abort(404, "Shot.json not found")
 
     with role_path.open("r") as f:
@@ -208,7 +209,7 @@ def diff_files(project, scene, shot):
 
 
 
-def compute_diff(prev_data, cur_data):
+def compute_diff(cur_data, prev_data):
 
     old_actors = {}
     new_actors = {}
